@@ -268,7 +268,16 @@ expect {
     send -- "y\r"
     exp_continue
   }
-  -re {Which edition.*} {
+  -re {Which edition would you like to install\?} {
+    expect {
+      -re {Enter choice \[1-2\].*:} {
+        send -- "1\r"
+      }
+      timeout {
+        send_user "\nERROR: Timed out while selecting ChainLaunch Community edition.\n"
+        exit 124
+      }
+    }
     exp_continue
   }
   -re {Enter choice \[1-2\].*:} {
