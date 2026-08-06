@@ -2,29 +2,6 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-# ============================================================================
-# KMASC - Cài ChainLaunch tự động bằng wizard chính thức
-#
-# Script tự trả lời:
-#   - Community edition                     -> 1
-#   - TLS self-signed                       -> 1
-#   - System service                        -> 1
-#   - Các câu hỏi Y/n                       -> y
-#   - Common Name                           -> <PUBLIC_IP>.nip.io
-#   - Port                                  -> CHAINLAUNCH_PORT (mặc định 8100)
-#
-# Tùy chọn:
-#   CHAINLAUNCH_PORT=8100
-#   PUBLIC_IP=1.2.3.4
-#   PUBLIC_HOST=chainlaunch.example.com
-#   MAX_ATTEMPTS=3
-#   FORCE_REINSTALL=0
-#
-# Ví dụ:
-#   sudo bash 02-install-chainlaunch-auto.sh
-#   sudo CHAINLAUNCH_PORT=443 bash 02-install-chainlaunch-auto.sh
-# ============================================================================
-
 CHAINLAUNCH_PORT="${CHAINLAUNCH_PORT:-8100}"
 PUBLIC_IP="${PUBLIC_IP:-}"
 PUBLIC_HOST="${PUBLIC_HOST:-}"
@@ -247,72 +224,93 @@ write_expect_script() {
   cat >"$EXPECT_FILE" <<'EXPECT_EOF'
 #!/usr/bin/expect -f
 set timeout 1800
+match_max 100000
 
 set installer $env(CL_INSTALLER_FILE)
 set port      $env(CL_PORT)
 set hostname  $env(CL_PUBLIC_HOST)
 
+# Trạng thái giúp tránh gửi lặp khi output được vẽ lại bằng ANSI/\r.
+set edition_done 0
+set tls_done 0
+set common_name_done 0
+set port_done 0
+set confirm_done 0
+set run_mode_done 0
+
 log_user 1
 spawn bash $installer
 
 expect {
-  -re {Install Docker now\?.*\[[Yy]/[Nn]\].*:} {
+  -re {Install Docker now} {
     send -- "y\r"
     exp_continue
   }
-  -re {Re-install / upgrade\?.*\[[Yy]/[Nn]\].*:} {
+  -re {Re-install / upgrade} {
     send -- "y\r"
     exp_continue
   }
-  -re {Install.*now\?.*\[[Yy]/[Nn]\].*:} {
+  -re {Install.*now} {
     send -- "y\r"
     exp_continue
   }
-  -re {Which edition would you like to install\?} {
-    expect {
-      -re {Enter choice \[1-2\].*:} {
-        send -- "1\r"
-      }
-      timeout {
-        send_user "\nERROR: Timed out while selecting ChainLaunch Community edition.\n"
-        exit 124
-      }
+
+  # Không bám vào chuỗi "Enter choice [1-2]" vì installer có thể chèn
+  # mã màu ANSI vào giữa prompt. Gửi lựa chọn sau khi thấy mục cuối menu.
+  -re {ChainLaunch Pro} {
+    if {!$edition_done} {
+      after 300
+      send -- "1\r"
+      set edition_done 1
     }
     exp_continue
   }
-  -re {Enter choice \[1-2\].*:} {
-    send -- "1\r"
+  -re {Skip TLS} {
+    if {!$tls_done} {
+      after 300
+      send -- "1\r"
+      set tls_done 1
+    }
     exp_continue
   }
-  -re {Enter choice \[1-3\].*:} {
-    send -- "1\r"
+  -re {Certificate Common Name} {
+    if {!$common_name_done} {
+      after 300
+      send -- "$hostname\r"
+      set common_name_done 1
+    }
     exp_continue
   }
-  -re {Choose.*\[1-2\].*:} {
-    send -- "1\r"
+  -re {(HTTP|HTTPS) port} {
+    if {!$port_done} {
+      after 300
+      send -- "$port\r"
+      set port_done 1
+    }
     exp_continue
   }
-  -re {Choose.*\[1-3\].*:} {
-    send -- "1\r"
+  -re {Proceed with this configuration} {
+    if {!$confirm_done} {
+      after 300
+      send -- "y\r"
+      set confirm_done 1
+    }
     exp_continue
   }
-  -re {Certificate Common Name.*:} {
-    send -- "$hostname\r"
+  -re {Foreground} {
+    if {!$run_mode_done} {
+      after 300
+      send -- "1\r"
+      set run_mode_done 1
+    }
     exp_continue
   }
-  -re {(HTTP|HTTPS) port.*:} {
-    send -- "$port\r"
-    exp_continue
-  }
-  -re {Proceed with this configuration\?.*\[[Yy]/[Nn]\].*:} {
+
+  -re {Continue} {
     send -- "y\r"
     exp_continue
   }
-  -re {Continue\?.*\[[Yy]/[Nn]\].*:} {
-    send -- "y\r"
-    exp_continue
-  }
-  -re {Press Enter.*} {
+  -re {Press Enter} {
     send -- "\r"
     exp_continue
   }
